@@ -1,0 +1,4 @@
+project_id = "plnzcqokenskmeglclis"
+
+[functions.process-lesson]
+verify_jwt = false
