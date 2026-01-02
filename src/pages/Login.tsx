@@ -173,7 +173,7 @@ const Login = () => {
         </div>
 
         {/* Footer Text */}
-        <p className="text-center mt-6 text-gray-600 text-sm">
+         <p className="text-center mt-6 text-gray-800 text-sm font-medium">
        © جميع الحقوق محفوظة @ أ/محمود جاد مصطفى @ ت/01060607654
         </p>
       </div>
