@@ -10,6 +10,8 @@ import { collection, addDoc, updateDoc, doc, getDoc, serverTimestamp } from "fir
 import { useAuth } from "@/contexts/AuthContext";
 // @ts-ignore
 import html2pdf from "html2pdf.js";
+// @ts-ignore
+import html2canvas from 'html2canvas';
 
 const Preparation = () => {
   const location = useLocation();
@@ -55,6 +57,8 @@ const Preparation = () => {
 
   const [currentUserRole, setCurrentUserRole] = useState<string>("user");
   const [isWatermarkLoading, setIsWatermarkLoading] = useState(true);
+  const [isPrintingImage, setIsPrintingImage] = useState(false);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
 
   // Fetch user role and watermark info
   useEffect(() => {
@@ -192,118 +196,169 @@ const Preparation = () => {
     );
   }
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const content = document.getElementById("printable-content");
-    if (content) {
-      // Standard A4 height at 96 DPI is approx 1123px.
-      // We subtract some buffer for margins/padding (20px top + 20px bottom = ~40px).
-      const MAX_HEIGHT = 1080;
+    if (!content) return;
 
-      // 1. Force width to A4 width to ensure text wrapping matches print output
+    toast({
+      title: "جاري المعالجة للطباعة",
+      description: "يرجى الانتظار بينما يتم تجهيز الصفحة كصورة عالية الجودة...",
+    });
+
+    try {
+      setIsPrintingImage(true);
+
+      // 1. Prepare for capture
+      const originalZoom = content.style.zoom;
       const originalWidth = content.style.width;
-      content.style.width = "794px"; // A4 width at 96 DPI
+      const originalPosition = content.style.position;
 
-      // 2. Reset zoom to 1 to get accurate natural height
+      content.style.width = "794px";
       content.style.zoom = "1";
+      content.style.position = "relative"; // Changed from static to keep watermark contained
 
-      // 3. Measure height
-      const currentHeight = content.scrollHeight;
+      // Small delay to let layout settle
+      await new Promise(resolve => setTimeout(resolve, 200));
 
-      // 4. Calculate required scale
-      let newZoom = 1;
-      if (currentHeight > MAX_HEIGHT) {
-        newZoom = MAX_HEIGHT / currentHeight;
-        // Add a tiny buffer to ensure it fits
-        newZoom = Math.floor(newZoom * 100) / 100 - 0.01;
-      }
+      // 2. Capture using html2canvas
+      const canvas = await html2canvas(content, {
+        scale: 4, // Ultra high precision
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        windowWidth: 794,
+        onclone: (clonedDoc) => {
+          const clonedContent = clonedDoc.getElementById("printable-content");
+          if (clonedContent) {
+            clonedContent.style.borderRadius = "2rem";
+            clonedContent.style.border = "2px solid #0f172a";
+            clonedContent.style.overflow = "hidden";
+            clonedContent.style.margin = "0";
+            clonedContent.style.padding = "10mm";
+            clonedContent.style.boxShadow = "none";
+            clonedContent.style.boxSizing = "border-box";
+            clonedContent.style.display = "block";
 
-      // 5. Apply calculated zoom
-      // We use a CSS variable or direct style. Since we have a ref, direct style is easiest.
-      // However, we want this to persist during the print dialog.
-      content.style.zoom = newZoom.toString();
+            // Add a tiny bit of white space around the clone parent if needed 
+            // to ensure no edge clipping of the border radius
+            if (clonedContent.parentElement) {
+              clonedContent.parentElement.style.padding = "2px";
+              clonedContent.parentElement.style.backgroundColor = "#ffffff";
+            }
+          }
+        }
+      });
 
-      // 6. Restore width (optional, but keep it consistent for the print dialog)
-      // The @media print usually overrides width to 100%, but we want to ensure the wrapping we measured persists if possible
-      // or rely on the @media print width matching our measurement width (794px).
-      content.style.width = ""; // Let CSS handle it, assuming @media print sets it correctly
+      const dataUrl = canvas.toDataURL("image/png");
+      setCapturedImage(dataUrl);
 
-      // Set the calculated zoom modification
-      document.documentElement.style.setProperty('--print-zoom', newZoom.toString());
+      // 3. Cleanup original view
+      content.style.width = originalWidth;
+      content.style.zoom = originalZoom;
+      content.style.position = originalPosition;
+
+      // 4. Trigger Print
+      setTimeout(() => {
+        window.print();
+        // Cleanup image after print dialog
+        setTimeout(() => {
+          setCapturedImage(null);
+          setIsPrintingImage(false);
+        }, 1000);
+      }, 500);
+
+    } catch (error) {
+      console.error("Print Error:", error);
+      setIsPrintingImage(false);
+      setCapturedImage(null);
+      toast({
+        title: "خطأ في الطباعة",
+        description: "حدث خطأ أثناء محاولة التقاط التصميم كصورة.",
+        variant: "destructive",
+      });
     }
-
-    const cleanup = () => {
-      const content = document.getElementById("printable-content");
-      if (content) {
-        content.style.zoom = "";
-        content.style.width = "";
-        document.documentElement.style.removeProperty('--print-zoom');
-      }
-    };
-
-    window.addEventListener("afterprint", cleanup, { once: true });
-
-    // Small timeout to allow styles to apply before printing
-    setTimeout(() => {
-      window.print();
-    }, 100);
   };
 
   const handleExportPDF = async () => {
     const element = document.getElementById("printable-content");
     if (!element) return;
 
-    // Show loading toast
     toast({
       title: "جاري تصدير PDF",
-      description: "يرجى الانتظار بينما يتم تجهيز الملف للتحميل...",
+      description: "يرجى الانتظار بينما يتم تجهيز الملف بدقة عالية...",
     });
 
     try {
       const originalZoom = element.style.zoom;
       const originalWidth = element.style.width;
+      const originalPosition = element.style.position;
       const originalTransition = element.style.transition;
 
-      // Prepare for measurement
+      // 1. Prepare for capture (Same as high-quality print logic)
       element.style.transition = 'none';
       element.classList.add('pdf-export-active');
       element.style.width = "794px";
       element.style.zoom = "1";
+      element.style.position = "relative";
 
-      // Calculate required zoom to fit on fixed A4 height (1080px)
-      const MAX_HEIGHT = 1080;
+      // Calculate required zoom to fit on fixed A4 height (1123px)
+      const MAX_HEIGHT = 1123;
       const currentHeight = element.scrollHeight;
 
-      let finalZoom = 1;
       if (currentHeight > MAX_HEIGHT) {
-        finalZoom = (MAX_HEIGHT / currentHeight) - 0.02;
+        const finalZoom = (MAX_HEIGHT / currentHeight) - 0.01;
+        element.style.zoom = finalZoom.toString();
       }
-      element.style.zoom = finalZoom.toString();
+
+      // Small delay to let styles/images settle for high precision
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       const opt = {
-        margin: [2, 2, 2, 2] as [number, number, number, number], // Smaller margins for PDF to gain space
+        margin: 0,
         filename: `${lessonData.title || 'تحضير'}.pdf`,
-        image: { type: 'jpeg' as const, quality: 0.98 },
+        image: { type: 'jpeg' as const, quality: 1.0 },
         html2canvas: {
-          scale: 2,
+          scale: 4,
           useCORS: true,
+          allowTaint: true,
           logging: false,
-          scrollY: 0,
-          windowWidth: 794
+          letterRendering: false,
+          backgroundColor: "#ffffff",
+          windowWidth: 794,
+          onclone: (clonedDoc) => {
+            const clonedContent = clonedDoc.getElementById("printable-content");
+            if (clonedContent) {
+              clonedContent.style.borderRadius = "2rem";
+              clonedContent.style.border = "2px solid #0f172a";
+              clonedContent.style.overflow = "hidden";
+              clonedContent.style.margin = "0";
+              clonedContent.style.boxShadow = "none";
+              clonedContent.style.boxSizing = "border-box";
+
+              if (clonedContent.parentElement) {
+                clonedContent.parentElement.style.padding = "2px";
+                clonedContent.parentElement.style.backgroundColor = "#ffffff";
+              }
+            }
+          }
         },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const }
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const, compress: true }
       };
 
+      // Generate PDF
       await html2pdf().set(opt).from(element).save();
 
-      // Cleanup
+      // 2. Cleanup
       element.classList.remove('pdf-export-active');
       element.style.width = originalWidth;
       element.style.zoom = originalZoom;
+      element.style.position = originalPosition;
       element.style.transition = originalTransition;
 
       toast({
         title: "تم التحميل",
-        description: "تم تحميل ملف PDF بنجاح في صفحة واحدة.",
+        description: "تم تصدير ملف PDF بنجاح وبدقة عالية.",
       });
     } catch (error) {
       console.error("PDF Export Error:", error);
@@ -552,28 +607,11 @@ const Preparation = () => {
               {/* Professional Grid Pattern */}
               <div className="w-full h-full grid grid-cols-1 md:grid-cols-2 grid-rows-3 gap-8 opacity-[0.05] p-8">
                 {getWatermarkGridItems().map((type, i) => {
-                  let content = "";
-                  let label = "";
-                  
-                  if (type === 'name') {
-                       // Name Stamp
-                       const nameRaw = wmName.trim();
-                       content = nameRaw.startsWith("أ/") ? nameRaw : `أ/ ${nameRaw}`;
-                       label = "المعلم";
-                  } else {
-                       // Phone Stamp
-                       const phoneRaw = wmPhone.trim();
-                       content = phoneRaw.startsWith("ت/") ? phoneRaw : `ت/ ${phoneRaw}`;
-                       label = "للتواصل";
-                  }
+                  const content = type === 'name' ? wmName.trim() : wmPhone.trim();
 
                   return (
                     <div key={i} className="flex items-center justify-center">
-                      <div className={`transform ${type === 'name' ? '-rotate-[15deg]' : '-rotate-[25deg]'} border-4 ${type === 'name' ? 'border-slate-900/40' : 'border-slate-800/30'} px-10 py-6 rounded-[2rem] flex flex-col items-center justify-center mix-blend-multiply backdrop-blur-[1px]`}>
-                        <div className="flex items-center gap-3 mb-2 opacity-80">
-                          <Shield className="w-6 h-6 text-slate-800" />
-                          <span className="text-sm font-bold tracking-[0.3em] text-slate-700 uppercase border-b border-slate-400 pb-1">{label}</span>
-                        </div>
+                      <div className={`transform ${type === 'name' ? '-rotate-[15deg]' : '-rotate-[25deg]'} border-4 ${type === 'name' ? 'border-slate-900/40' : 'border-slate-800/30'} px-10 py-8 rounded-[2rem] flex flex-col items-center justify-center mix-blend-multiply backdrop-blur-[1px]`}>
                         <span className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-900 whitespace-nowrap text-center px-4 leading-tight" style={{ fontFamily: 'serif' }}>
                           {content}
                         </span>
@@ -761,6 +799,17 @@ const Preparation = () => {
         </div>
       </main>
 
+      {/* Captured Image for Perfect Print */}
+      {capturedImage && (
+        <div id="print-image-container" className="fixed inset-0 z-[999999] bg-white flex items-center justify-center print:block hidden">
+          <img
+            src={capturedImage}
+            className="w-full h-full block"
+            style={{ width: '210mm', height: '297mm', objectFit: 'fill' }}
+          />
+        </div>
+      )}
+
       {/* Shape Editor Modal */}
       <ShapeEditor
         isOpen={isShapeEditorOpen}
@@ -769,187 +818,37 @@ const Preparation = () => {
       />
 
       <style>{`
-        @media print {
-          /* General Reset */
-          *, *::before, *::after {
-            box-sizing: border-box;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
+  @media print {
+    /* Safe hide everything */
+    body {
+      visibility: hidden !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: white !important;
+    }
 
-          body * {
-            visibility: hidden;
-          }
+    /* Force show ONLY the captured image container */
+    #print-image-container,
+    #print-image-container img {
+      visibility: visible !important;
+      display: block !important;
+    }
 
-          /* Print Container */
-          #printable-content, #printable-content * {
-            visibility: visible;
-          }
+    #print-image-container {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 210mm !important;
+      height: 297mm !important;
+      z-index: 999999 !important;
+      background: white !important;
+    }
 
-          html, body {
-            height: 100vh;
-            width: 100%;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important; /* Critical for single page */
-            background: white !important;
-          }
-          
-          /* تحسين الخطوط للطباعة */
-          #printable-content {
-            font-family: "Traditional Arabic", "Simplified Arabic", "Amiri", serif;
-            font-weight: 600;
-            line-height: 1.3;
-            font-size: 11pt; /* Slightly smaller for better fit */
-            direction: rtl;
-          }
-
-          #printable-content {
-            position: fixed;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            /* Use a slight zoom to fit more content if needed - safe for Chrome/Edge */
-            zoom: var(--print-zoom, 0.95); 
-            padding: 5mm !important;
-            margin: 0 !important;
-            border: none !important;
-            display: flex;
-            flex-direction: column;
-            background: white !important;
-          }
-
-          /* Top Sections */
-          #printable-content > *:not(table:last-of-type) {
-            flex-shrink: 0;
-            margin-bottom: 4px !important; /* Tighten vertical spacing */
-          }
-          
-          /* Compact Header Inputs/Divs */
-          #printable-content .min-h-\\[24px\\] { min-height: auto !important; }
-          #printable-content .mb-4 { margin-bottom: 4px !important; }
-          #printable-content .p-2 { padding: 2px !important; }
-
-          /* Main Table Container */
-          #printable-content > table:last-of-type {
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            border: 2px solid black !important;
-            margin-top: 2px;
-            height: auto !important;
-            overflow: hidden; /* Prevent table itself from spilling */
-          }
-
-          #printable-content > table:last-of-type tbody {
-            display: flex;
-            flex-direction: column;
-            flex: 1;
-            width: 100%;
-            overflow: hidden;
-          }
-
-          /* Table Rows */
-          #printable-content > table:last-of-type tr {
-            display: flex;
-            width: 100%;
-            border-bottom: 1px solid black;
-          }
-          
-          #printable-content > table:last-of-type tr:last-child {
-            border-bottom: none;
-          }
-
-          /* Titles styling */
-          .font-bold {
-             font-weight: 800 !important;
-             font-size: 12pt !important;
-          }
-          
-          /* First Row: Preparation */
-          #printable-content > table:last-of-type tr:first-child {
-            flex: 0 0 auto;
-          }
-          /* Reduce height of Preparation textarea preview */
-          #printable-content > table:last-of-type tr:first-child .min-h-\\[60px\\] {
-             min-height: 40px !important;
-          }
-
-          /* Second Row: Presentation (Expand based on content, but shrinkable if desperate) */
-          #printable-content > table:last-of-type tr:nth-child(2) {
-             flex: 0 1 auto; /* Allow shrinking if absolutely necessary, but preferred auto */
-             min-height: 100px;
-             overflow: hidden; /* If it shrinks, clip nicely rather than explode */
-          }
-
-          /* Third Row: Evaluation (Fill remaining space) */
-          #printable-content > table:last-of-type tr:last-child {
-             flex: 1 1 auto;
-             min-height: 60px; /* Ensure at least this much is visible */
-             display: flex;
-             flex-direction: column;
-          }
-
-          /* Cells */
-          #printable-content > table:last-of-type td,
-          #printable-content > table:last-of-type th {
-            display: block;
-            width: 100%;
-            padding: 4px 6px; /* Compact padding */
-            border: none !important;
-          }
-
-          /* Ensure content inside Evaluation expands */
-          #printable-content > table:last-of-type tr:last-child td {
-             flex: 1;
-             display: flex;
-             flex-direction: column;
-             height: 100%;
-          }
-           
-          #printable-content > table:last-of-type tr:last-child td > div {
-             flex: 1;
-             display: flex !important;
-             flex-direction: column;
-          }
-          
-          #printable-content > table:last-of-type tr:last-child td > div > div { /* RichTextEditor internal */
-             flex: 1;
-             height: 100%;
-             width: 100%;
-             border: none !important;
-          }
-          
-          /* Custom overrides for RichTextEditor in print */
-          .prose {
-             max-width: none !important;
-          }
-          .prose img {
-             margin: 0 !important;
-             max-height: 200px;
-          }
-
-          /* General Table Styles */
-          table {
-            width: 100% !important;
-            border-collapse: collapse !important;
-          }
-
-          td, th {
-             font-size: 11pt !important;
-          }
-          
-          * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          
-          @page {
-            size: A4;
-            margin: 0;
-          }
-        }
+    @page {
+      size: A4;
+      margin: 0 !important;
+    }
+  }
 
         /* Specialized CSS for PDF Export Mode - Matches Print Aesthetics */
         .pdf-export-active {
@@ -958,15 +857,16 @@ const Preparation = () => {
           line-height: 1.3 !important;
           font-size: 11pt !important;
           background: white !important;
-          padding: 5mm !important;
+          padding: 10mm !important;
           display: flex !important;
           flex-direction: column !important;
-          height: 1080px !important; /* Fixed A4-ish height for snapshot */
-          width: 794px !important; /* Fixed A4 width */
-          border: none !important;
-          border-radius: 0 !important;
+          height: 1123px !important; 
+          width: 794px !important; 
+          border: 2px solid #0f172a !important;
+          border-radius: 2rem !important;
+          overflow: hidden !important;
         }
-        
+
         .pdf-export-active table {
           border-collapse: collapse !important;
           width: 100% !important;
