@@ -546,7 +546,7 @@ const Index = () => {
             <span className="text-lg font-bold text-slate-800">تحضير ذكي</span>
           </div>
           <p className="text-sm text-slate-400 font-medium italic">مدعوم بتقنيات الذكاء الاصطناعي لخدمة المعلم المصري</p>
-          <p className="text-[10px] text-slate-300 mt-8">© جميع الحقوق محفوظة @ أ/محمود جاد مصطفى @ ت/01060607654</p>
+          <p className="text-[10px] text-slate-600 mt-8">© جميع الحقوق محفوظة @ أ/محمود جاد مصطفى @ ت/01060607654</p>
         </div>
       </footer>
     </div>
