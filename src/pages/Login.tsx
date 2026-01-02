@@ -174,7 +174,7 @@ const Login = () => {
 
         {/* Footer Text */}
         <p className="text-center mt-6 text-gray-600 text-sm">
-          © 2025 منصة التعليم. جميع الحقوق محفوظة.
+        جميع الحقوق محفوظة @ أ/محمود جاد مصطفى @ ت/01060607654
         </p>
       </div>
 
