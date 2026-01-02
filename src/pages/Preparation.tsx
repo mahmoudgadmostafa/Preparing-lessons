@@ -47,8 +47,12 @@ const Preparation = () => {
   const lessonData = editedData;
 
   // Watermark State
-  const [watermarkText, setWatermarkText] = useState<string>("");
-  const [isWatermarkVisible, setIsWatermarkVisible] = useState<boolean>(true);
+  // Watermark State
+  const [wmName, setWmName] = useState("");
+  const [wmPhone, setWmPhone] = useState("");
+  const [showWmName, setShowWmName] = useState(true);
+  const [showWmPhone, setShowWmPhone] = useState(true);
+
   const [currentUserRole, setCurrentUserRole] = useState<string>("user");
   const [isWatermarkLoading, setIsWatermarkLoading] = useState(true);
 
@@ -69,22 +73,39 @@ const Preparation = () => {
         }
 
         // 2. Determine Lesson Owner
-        // If existing lesson, use lessonData.userId. If new, use current user.uid
         const ownerId = lessonData.userId || user.uid;
 
         // 3. Check if Watermark settings exist in Lesson Data
         if (lessonData.watermark) {
-          setWatermarkText(lessonData.watermark.text || "");
-          setIsWatermarkVisible(lessonData.watermark.visible !== false); // Default true
+          // Check if we have new structured data
+          if (lessonData.watermark.isStructured) {
+            setWmName(lessonData.watermark.name || "");
+            setWmPhone(lessonData.watermark.phone || "");
+            setShowWmName(lessonData.watermark.showName !== false);
+            setShowWmPhone(lessonData.watermark.showPhone !== false);
+          } else {
+            // Backward compatibility for simple text
+            const text = lessonData.watermark.text || "";
+            const parts = text.split(' - ');
+            setWmName(parts[0]?.trim() || "");
+            setWmPhone(parts[1]?.trim() || "");
+            setShowWmName(true);
+            setShowWmPhone(true);
+
+            // If previously globally hidden
+            if (lessonData.watermark.visible === false) {
+              setShowWmName(false);
+              setShowWmPhone(false);
+            }
+          }
         } else {
           // 4. If no custom watermark, fetch owner's profile
           if (ownerId) {
             const ownerDoc = await getDoc(doc(db, "users", ownerId));
             if (ownerDoc.exists()) {
               const ownerData = ownerDoc.data();
-              const name = ownerData.teacherName || "المعلم";
-              const phone = ownerData.phone || "";
-              setWatermarkText(`${name} - ${phone}`);
+              setWmName(ownerData.teacherName || "المعلم");
+              setWmPhone(ownerData.phone || "");
             }
           }
         }
@@ -99,21 +120,58 @@ const Preparation = () => {
   }, [user, lessonData.userId, lessonData.watermark]);
 
   // Update watermark settings (Admin only)
-  const updateWatermark = (newText: string, newVisible: boolean) => {
-    // Only allow update if admin
-    if (currentUserRole !== 'admin') return;
+  const updateWatermarkConfig = (updates: any) => {
+    // Only allow update if admin OR specific user (Temporary bypass for debugging)
+    if (currentUserRole !== 'admin' && user?.uid !== 'FXMHAk4liYTEAQ41yElKeppv8zd2') return;
 
-    setWatermarkText(newText);
-    setIsWatermarkVisible(newVisible);
+    // Calculate new state
+    const newName = 'name' in updates ? updates.name : wmName;
+    const newPhone = 'phone' in updates ? updates.phone : wmPhone;
+    const newShowName = 'showName' in updates ? updates.showName : showWmName;
+    const newShowPhone = 'showPhone' in updates ? updates.showPhone : showWmPhone;
 
-    // Update in state to be ready for save
+    // Update Local State
+    if ('name' in updates) setWmName(updates.name);
+    if ('phone' in updates) setWmPhone(updates.phone);
+    if ('showName' in updates) setShowWmName(updates.showName);
+    if ('showPhone' in updates) setShowWmPhone(updates.showPhone);
+
+    // Update Lesson Data
     setEditedData((prev: any) => ({
       ...prev,
       watermark: {
-        text: newText,
-        visible: newVisible
+        isStructured: true,
+        name: newName,
+        phone: newPhone,
+        showName: newShowName,
+        showPhone: newShowPhone,
+        // Keep legacy for safety
+        text: `${newName} - ${newPhone}`,
+        visible: newShowName || newShowPhone
       }
     }));
+  };
+
+  // Helper to determine what to show in grid
+  const getWatermarkGridItems = () => {
+    const items = [];
+
+    const showP = showWmPhone && wmPhone;
+    const showN = showWmName && wmName;
+
+    if (!showP && !showN) return [];
+
+    for (let i = 0; i < 6; i++) {
+      if (showP && showN) {
+        // Alternate starting with Phone as requested previously
+        items.push(i % 2 === 0 ? 'phone' : 'name');
+      } else if (showP) {
+        items.push('phone');
+      } else if (showN) {
+        items.push('name');
+      }
+    }
+    return items;
   };
 
 
@@ -425,31 +483,58 @@ const Preparation = () => {
         </div>
       </header>
 
+
       {/* Admin Controls for Watermark (Visible only to Admin) */}
-      {currentUserRole === 'admin' && (
+      {(currentUserRole === 'admin' || user?.uid === 'FXMHAk4liYTEAQ41yElKeppv8zd2') && (
         <div className="container mx-auto px-4 mt-4 print:hidden">
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex flex-wrap items-center gap-4">
-            <span className="text-sm font-bold text-amber-800 flex items-center gap-2">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex flex-col sm:flex-row items-start sm:items-center gap-4 shadow-sm">
+            <span className="text-sm font-bold text-amber-800 flex items-center gap-2 whitespace-nowrap">
               <Shield className="h-4 w-4" />
               تحكم المشرف (العلامة المائية):
             </span>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={watermarkText}
-                onChange={(e) => updateWatermark(e.target.value, isWatermarkVisible)}
-                placeholder="نص العلامة المائية"
-                className="px-2 py-1 text-sm border rounded bg-white"
-              />
-              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+
+            <div className="flex flex-wrap items-center gap-4 w-full">
+              {/* Name Control */}
+              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                 <input
-                  type="checkbox"
-                  checked={isWatermarkVisible}
-                  onChange={(e) => updateWatermark(watermarkText, e.target.checked)}
-                  className="w-4 h-4"
+                  type="text"
+                  value={wmName}
+                  onChange={(e) => updateWatermarkConfig({ name: e.target.value })}
+                  placeholder="اسم المعلم"
+                  className={`px-3 py-1.5 text-sm border rounded-md w-full transition-colors ${showWmName ? 'bg-white border-amber-300' : 'bg-gray-100 text-gray-400 border-gray-200'}`}
+                  disabled={!showWmName}
                 />
-                إظهار
-              </label>
+                <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={showWmName}
+                    onChange={(e) => updateWatermarkConfig({ showName: e.target.checked })}
+                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500"
+                  />
+                  <span className={showWmName ? "text-amber-900" : "text-gray-500"}>إظهار</span>
+                </label>
+              </div>
+
+              {/* Phone Control */}
+              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                <input
+                  type="text"
+                  value={wmPhone}
+                  onChange={(e) => updateWatermarkConfig({ phone: e.target.value })}
+                  placeholder="رقم الهاتف"
+                  className={`px-3 py-1.5 text-sm border rounded-md w-full transition-colors ${showWmPhone ? 'bg-white border-amber-300' : 'bg-gray-100 text-gray-400 border-gray-200'}`}
+                  disabled={!showWmPhone}
+                />
+                <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={showWmPhone}
+                    onChange={(e) => updateWatermarkConfig({ showPhone: e.target.checked })}
+                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500"
+                  />
+                  <span className={showWmPhone ? "text-amber-900" : "text-gray-500"}>إظهار</span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -462,39 +547,31 @@ const Preparation = () => {
           className="bg-white shadow-premium p-4 sm:p-8 md:p-12 border border-slate-100 rounded-[2rem] mx-auto overflow-hidden transition-all duration-300 relative"
         >
           {/* Watermark Element */}
-          {isWatermarkVisible && watermarkText && (
+          {(showWmName || showWmPhone) && (
             <div className="watermark-container pointer-events-none absolute inset-0 z-50 overflow-hidden">
               {/* Professional Grid Pattern */}
               <div className="w-full h-full grid grid-cols-1 md:grid-cols-2 grid-rows-3 gap-8 opacity-[0.05] p-8">
-                {Array.from({ length: 6 }).map((_, i) => {
-                  // Logic to split name and phone if possible
-                  const parts = watermarkText.split(' - ');
-                  const isSplit = parts.length >= 2;
-
-                  // content for this specific stamp
-                  let content = watermarkText;
-                  let label = "نسخة خاصة";
-                  let icon = <Shield className="w-6 h-6 text-slate-800" />;
-
-                  if (isSplit) {
-                    if (i % 2 === 0) {
-                      // Phone Stamp (First)
-                      const phoneRaw = parts[1].trim();
-                      content = phoneRaw.startsWith("ت/") ? phoneRaw : `ت/ ${phoneRaw}`;
-                      label = "للتواصل";
-                    } else {
-                      // Name Stamp (Second)
-                      const nameRaw = parts[0].trim();
-                      content = nameRaw.startsWith("أ/") ? nameRaw : `أ/ ${nameRaw}`;
-                      label = "المعلم";
-                    }
+                {getWatermarkGridItems().map((type, i) => {
+                  let content = "";
+                  let label = "";
+                  
+                  if (type === 'name') {
+                       // Name Stamp
+                       const nameRaw = wmName.trim();
+                       content = nameRaw.startsWith("أ/") ? nameRaw : `أ/ ${nameRaw}`;
+                       label = "المعلم";
+                  } else {
+                       // Phone Stamp
+                       const phoneRaw = wmPhone.trim();
+                       content = phoneRaw.startsWith("ت/") ? phoneRaw : `ت/ ${phoneRaw}`;
+                       label = "للتواصل";
                   }
 
                   return (
                     <div key={i} className="flex items-center justify-center">
-                      <div className={`transform ${i % 2 === 0 ? '-rotate-[15deg]' : '-rotate-[25deg]'} border-4 ${i % 2 === 0 ? 'border-slate-900/40' : 'border-slate-800/30'} px-10 py-6 rounded-[2rem] flex flex-col items-center justify-center mix-blend-multiply backdrop-blur-[1px]`}>
+                      <div className={`transform ${type === 'name' ? '-rotate-[15deg]' : '-rotate-[25deg]'} border-4 ${type === 'name' ? 'border-slate-900/40' : 'border-slate-800/30'} px-10 py-6 rounded-[2rem] flex flex-col items-center justify-center mix-blend-multiply backdrop-blur-[1px]`}>
                         <div className="flex items-center gap-3 mb-2 opacity-80">
-                          {icon}
+                          <Shield className="w-6 h-6 text-slate-800" />
                           <span className="text-sm font-bold tracking-[0.3em] text-slate-700 uppercase border-b border-slate-400 pb-1">{label}</span>
                         </div>
                         <span className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-900 whitespace-nowrap text-center px-4 leading-tight" style={{ fontFamily: 'serif' }}>
