@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { db } from "@/lib/firebase";
 import { doc, getDoc, collection, query, where, getDocs, orderBy, deleteDoc } from "firebase/firestore";
 import { Search, Trash2, Clock, Calendar } from "lucide-react";
+import { processLessonWithGemini } from "@/services/aiService";
 
 interface TeacherData {
   teacherName: string;
@@ -155,28 +156,45 @@ const Index = () => {
     setIsUploading(true);
 
     try {
-      const formData = new FormData();
-      Array.from(files).forEach((file) => {
-        formData.append('files', file);
-      });
+      let lessonData: any = null;
 
-      const { data, error } = await supabase.functions.invoke('process-lesson', {
-        body: formData,
-      });
+      // 1. Try Supabase Edge Function first
+      try {
+        const formData = new FormData();
+        Array.from(files).forEach((file) => {
+          formData.append('files', file);
+        });
 
-      if (error) throw error;
+        const { data, error } = await supabase.functions.invoke('process-lesson', {
+          body: formData,
+        });
+
+        if (!error && data && !data.error) {
+          lessonData = data;
+        } else {
+          console.warn('Supabase edge function warning, switching to direct Gemini fallback:', error || data?.error);
+        }
+      } catch (edgeErr) {
+        console.warn('Edge function invoke error:', edgeErr);
+      }
+
+      // 2. Direct Gemini Fallback if edge function unavailable or fails
+      if (!lessonData) {
+        console.log('Processing lesson using direct Gemini 2.0 Flash API...');
+        lessonData = await processLessonWithGemini(Array.from(files));
+      }
 
       toast({
         title: "نجح!",
-        description: "تم معالجة الملفات بنجاح",
+        description: "تم معالجة الملفات وإنشاء الدرس بنجاح",
       });
 
-      navigate('/preparation', { state: { lessonData: data } });
+      navigate('/preparation', { state: { lessonData } });
     } catch (error) {
       console.error('Upload error:', error);
       toast({
         title: "خطأ",
-        description: "حدث خطأ أثناء معالجة الملفات",
+        description: error instanceof Error ? error.message : "حدث خطأ أثناء معالجة الملفات",
         variant: "destructive",
       });
     } finally {
@@ -546,7 +564,7 @@ const Index = () => {
             <span className="text-lg font-bold text-slate-800">تحضير ذكي</span>
           </div>
           <p className="text-sm text-slate-400 font-medium italic">مدعوم بتقنيات الذكاء الاصطناعي لخدمة المعلم المصري</p>
-          <p className="text-[10px] text-slate-600 mt-8">© جميع الحقوق محفوظة @ أ/محمود جاد مصطفى @ ت/01060607654</p>
+          <p className="text-[10px] text-slate-600 mt-8">©جميع الحقوق محفوظة @أ/محمود جاد مصطفى @ ت/01060607654</p>
         </div>
       </footer>
     </div>

@@ -26,6 +26,10 @@ const Preparation = () => {
   const convertLegacyToHtml = (text: any) => {
     if (!text) return "";
     const str = String(text);
+    // If text is already HTML (has HTML elements), preserve formatting
+    if (/<[a-z][\s\S]*>/i.test(str)) {
+      return str.replace(/\[صورة:([^\]]+)\]/g, '<img src="$1" style="max-width: 300px; display: inline-block; vertical-align: middle;" />');
+    }
     let html = str
       .replace(/\[صورة:([^\]]+)\]/g, '<img src="$1" style="max-width: 300px; display: inline-block; vertical-align: middle;" />')
       .replace(/\n/g, '<br>');

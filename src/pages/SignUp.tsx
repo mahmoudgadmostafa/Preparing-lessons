@@ -422,6 +422,7 @@ const SignUp = () => {
 
                 {/* Footer Text */}
                 <p className="text-center mt-6 text-gray-600 text-sm">
+
                 </p>
             </div>
 

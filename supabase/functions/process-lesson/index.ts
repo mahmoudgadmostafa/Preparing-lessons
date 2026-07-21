@@ -12,9 +12,9 @@ serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+    if (!GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY is not configured. يرجى إعداد مفتاح Google Gemini API.');
     }
 
     const formData = await req.formData();
@@ -30,7 +30,7 @@ serve(async (req) => {
     console.log(`Processing ${files.length} files`);
 
     // Prepare images for AI vision analysis
-    const imageParts: any[] = [];
+    const geminiImageParts: any[] = [];
     let textContent = '';
 
     for (const file of files) {
@@ -45,9 +45,11 @@ serve(async (req) => {
                          fileName.endsWith('.gif') ? 'image/gif' :
                          fileName.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
         
-        imageParts.push({
-          type: "image_url",
-          image_url: { url: `data:${mimeType};base64,${base64}` }
+        geminiImageParts.push({
+          inlineData: {
+            mimeType: mimeType,
+            data: base64
+          }
         });
         console.log(`✓ Added image for analysis: ${file.name} (${(uint8Array.length / 1024).toFixed(1)} KB)`);
       } 
@@ -60,9 +62,11 @@ serve(async (req) => {
       // PDF files - convert to base64 and let AI try to analyze
       else if (fileName.endsWith('.pdf')) {
         const base64 = encodeBase64(uint8Array);
-        imageParts.push({
-          type: "image_url",
-          image_url: { url: `data:application/pdf;base64,${base64}` }
+        geminiImageParts.push({
+          inlineData: {
+            mimeType: 'application/pdf',
+            data: base64
+          }
         });
         console.log(`✓ Added PDF for analysis: ${file.name} (${(uint8Array.length / 1024).toFixed(1)} KB)`);
       }
@@ -81,52 +85,53 @@ serve(async (req) => {
     }
 
     // Build the detailed analysis prompt
-    const systemPrompt = `أنت خبير تربوي متخصص في إعداد أوراق تحضير الدروس. مهمتك الأساسية هي:
+    const systemPrompt = `أنت موجه تربوي وخبير في إعداد تحضير الدروس النموذجية والاحترافية للمعلمين.
+مهمتك هي تحليل المحتوى المقدم (صور أو ملفات) بدقة عالية، ثم صياغة ورقة تحضير درس نموذجية ومتكاملة تناسب العرض المباشر في ورقة التحضير.
 
-📖 **تحليل المحتوى بدقة:**
-- اقرأ وحلل كل كلمة وجملة في المحتوى المقدم (صور أو نصوص)
-- استخرج عنوان الدرس **الحقيقي الموجود في المحتوى** وليس عنوان مختلق
-- حدد الأفكار الرئيسية والفرعية للدرس
-- استخرج المفاهيم والمصطلحات المهمة
+📋 **المطلوب صياغته باحترافية باللغة العربية:**
 
-📝 **إعداد ورقة التحضير:**
-بناءً على تحليلك الدقيق للمحتوى، أعد ورقة تحضير تتضمن:
+1. **عنوان الدرس**: استخرج العنوان الرئيسي الدقيق والفعلي للدرس من المحتوى.
+2. **الأهداف السلوكية الإجرائية**: صغ من 3 إلى 5 أهداف سلوكية إجرائية واضحة وقابلة للقياس (مثل: أن يوضح الطالب...، أن يقارن الطالب...، أن يحلل الطالب...).
+3. **استراتيجيات التدريس والتعلم النشط**: اختر استراتيجيات حديثة ومناسبة للدرس (مثل: العصف الذهني، التعلم التعاوني، التفكير الناقد، خريطة المفاهيم).
+4. **التهيئة (المقدمة الحافزة)**: اكتب تهيئة مشوقة ترتبط بالمعرفة السابقة وتجذب انتباه الطلاب للموضوع.
+5. **عرض الدرس وتلخيص المحتوى (العرض الاحترافي)**: اكتب تلخيصاً مفصلاً ومنظماً ومصاغاً بأسلوب تربوي رائع يشمل شرح النقاط المفتاحية، المفاهيم الرئيسية، الأمثلة الشارحة، والخطوات التعليمية التي سيشرحها المعلم.
+6. **التقويم والتأكد من الفهم**: صغ أسئلة تقويمية متنوعة (تكوينية وختامية) تقيس مدى تحقق الأهداف.
+7. **الواجب المنزلي (الأنشطة)**: صغ نشاطاً أو واجباً تطبيقياً يعزز فهم الطالب للدرس.
 
-1. **عنوان الدرس**: العنوان الفعلي كما يظهر في المحتوى
-2. **الأهداف**: أهداف سلوكية مشتقة من محتوى الدرس الفعلي (تبدأ بـ: يذكر، يشرح، يحدد، يقارن، يحلل، يطبق...)
-3. **الاستراتيجيات**: مناسبة لطبيعة المحتوى
-4. **التهيئة**: مقدمة تربط بالمعرفة السابقة وتمهد للمحتوى الفعلي
-5. **عرض الدرس**: شرح مفصل للمحتوى الموجود مع الأمثلة والتفاصيل الفعلية
-6. **التقويم**: أسئلة تقيس فهم المحتوى الفعلي للدرس
-7. **الواجب**: مرتبط بمحتوى الدرس الفعلي
+📐 **تعليمات خاصة ومميزة إذا كان الدرس في مادة "الرياضيات":**
+- **الأهداف السلوكية**: التركيز على المهارات الرياضية (أن يستنتج الطالب القانون...، أن يطبق الصيغة الرياضية...، أن يحل المسألة خطوة بخطوة...، أن يمثل بيانيا...).
+- **الاستراتيجيات**: دمج استراتيجيات الرياضيات مثل (حل المشكلات، النمذجة الرياضية، الخطوات الأربع لحل المسألة، الاكتشاف الموجه).
+- **عرض الدرس**: 
+  * كتابة القوانين والنظريات والعلاقات الرياضية بوضوح شديد.
+  * إضافة **مثال محلول نموذجياً بالخطوات التفصيلية** (توضيح المعطيات، المطلوب، وخطوات الحل والناتج النهائي).
+  * شرح المفاهيم الرياضية (مثل: المساحة، الزاوية، المعادلة، النسبة) بأسلوب مبسط وشامل.
+- **التقويم والواجب**: تضمين مسائل تمارين محلولة وتدريبات رياضية متنوعة تقيس مهارات التفكير الرياضي.
 
 ⚠️ **تعليمات صارمة:**
 - لا تخترع أو تخمن معلومات غير موجودة في المحتوى
-- إذا كان المحتوى غير واضح، اذكر ذلك صراحة
-- استخدم الأمثلة والتفاصيل الموجودة في المحتوى نفسه
-- كل ما تكتبه يجب أن يكون مستند للمحتوى المقدم
+- استخدم الأرقام والمعطيات الرياضية الموجودة في المحتوى نفسه
 
 قدم النتيجة بتنسيق JSON فقط:
 {
   "title": "عنوان الدرس الفعلي من المحتوى",
-  "objectives": ["هدف 1 مبني على المحتوى", "هدف 2", "هدف 3", "هدف 4"],
-  "strategies": ["استراتيجية مناسبة 1", "استراتيجية مناسبة 2"],
-  "preparation": "تهيئة مفصلة مرتبطة بمحتوى الدرس الفعلي",
-  "presentation": "شرح مفصل وواضح لمحتوى الدرس مع كل التفاصيل والأمثلة المذكورة",
-  "evaluation": "أسئلة تقويمية محددة مبنية على محتوى الدرس",
-  "homework": "واجب منزلي مرتبط بالمحتوى الفعلي"
+  "objectives": ["هدف سلوكي أو مهاري 1", "هدف 2", "هدف 3"],
+  "strategies": ["استراتيجية حل المشكلات / التعلم التعاوني", "استراتيجية العصف الذهني"],
+  "preparation": "تهيئة حافزة مرتبطة بالخبرات السابقة وتطرح لغزاً أو مسألة تمهيدية",
+  "presentation": "عرض مفصل يتضمن القوانين والمفاهيم الرياضية ومثالاً محلولاً بالخطوات (المعطيات، المطلوب، الحل)",
+  "evaluation": "أسئلة وتقويمات رياضية محددة تقيس مهارة حل المسائل",
+  "homework": "مسألة رياضية تطبيقية أو واجب منزلي"
 }`;
 
     let userPrompt = '';
     
-    if (imageParts.length > 0 && textContent.length > 50) {
+    if (geminiImageParts.length > 0 && textContent.length > 50) {
       userPrompt = `حلل الصور والنصوص التالية بدقة واستخرج منها بيانات تحضير الدرس.
 
 النص المستخرج:
 ${textContent}
 
 قم بتحليل الصور المرفقة أيضاً واستخدم كل المعلومات المتاحة.`;
-    } else if (imageParts.length > 0) {
+    } else if (geminiImageParts.length > 0) {
       userPrompt = `اقرأ وحلل الصور المرفقة بعناية فائقة:
 - استخرج عنوان الدرس الظاهر في الصور
 - اقرأ كل النصوص والمحتوى الموجود
@@ -147,35 +152,35 @@ ${textContent}
       );
     }
 
-    // Build messages
-    const messages: any[] = [{ role: 'system', content: systemPrompt }];
-
-    if (imageParts.length > 0) {
-      const userContent: any[] = [{ type: "text", text: userPrompt }, ...imageParts];
-      messages.push({ role: 'user', content: userContent });
-    } else {
-      messages.push({ role: 'user', content: userPrompt });
+    // Build Gemini API request parts
+    const contentsParts: any[] = [{ text: systemPrompt + "\n\n" + userPrompt }];
+    
+    // Add image parts in Gemini native format
+    for (const imgPart of geminiImageParts) {
+      contentsParts.push(imgPart);
     }
 
-    console.log(`Sending to AI: ${imageParts.length} images, ${textContent.length} chars text`);
+    console.log(`Sending to Gemini API: ${geminiImageParts.length} images, ${textContent.length} chars text`);
 
-    // Use gemini-2.5-pro for best analysis quality
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-pro',
-        messages: messages,
-        response_format: { type: "json_object" }
-      }),
-    });
+    // Call Google Gemini API directly (FREE tier - gemini-2.0-flash)
+    const aiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: contentsParts }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.2
+          }
+        }),
+      }
+    );
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
-      console.error('AI API error:', aiResponse.status, errorText);
+      console.error('Gemini API error:', aiResponse.status, errorText);
       
       if (aiResponse.status === 429) {
         return new Response(
@@ -183,34 +188,31 @@ ${textContent}
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
-      if (aiResponse.status === 402) {
-        return new Response(
-          JSON.stringify({ error: 'الرجاء إضافة رصيد إلى حسابك' }),
-          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
 
-      throw new Error(`AI API error: ${aiResponse.status}`);
+      throw new Error(`Gemini API error: ${aiResponse.status} - ${errorText}`);
     }
 
     const aiData = await aiResponse.json();
-    console.log('AI response received successfully');
+    console.log('Gemini API response received successfully');
 
     let lessonData;
     try {
-      const content = aiData.choices[0].message.content;
-      console.log('AI extracted content preview:', content.substring(0, 800));
+      // Gemini response format: candidates[0].content.parts[0].text
+      const content = aiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!content) {
+        throw new Error('Empty response from Gemini API');
+      }
+      console.log('Gemini extracted content preview:', content.substring(0, 800));
       lessonData = JSON.parse(content);
     } catch (parseError) {
-      console.error('Failed to parse AI response:', parseError);
+      console.error('Failed to parse Gemini response:', parseError);
       return new Response(
         JSON.stringify({ error: 'فشل في تحليل الرد. يرجى المحاولة مرة أخرى.' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Validate and return
+    // Validate and return (SAME OUTPUT FORMAT AS BEFORE)
     const result = {
       title: lessonData.title || 'عنوان الدرس غير محدد',
       objectives: Array.isArray(lessonData.objectives) && lessonData.objectives.length > 0 
