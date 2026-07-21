@@ -20,6 +20,7 @@ const SignUp = () => {
     });
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
     const navigate = useNavigate();
     const { signUp, signInWithGoogle } = useAuth();
