@@ -422,7 +422,6 @@ const SignUp = () => {
 
                 {/* Footer Text */}
                 <p className="text-center mt-6 text-gray-600 text-sm">
-                    © 2025 منصة تحضير الدروس. جميع الحقوق محفوظة.
                 </p>
             </div>
 
