@@ -2,12 +2,12 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, FileText, Sparkles, BookOpen, LogOut, Shield } from "lucide-react";
+import { Upload, FileText, Sparkles, BookOpen, LogOut, Shield, Gauge } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, collection, query, where, getDocs, orderBy, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs, orderBy, deleteDoc, onSnapshot } from "firebase/firestore";
 import { Search, Trash2, Clock, Calendar } from "lucide-react";
 import { processLessonWithGemini } from "@/services/aiService";
 
@@ -16,6 +16,7 @@ interface TeacherData {
   subject: string;
   phone: string;
   role?: string;
+  dailyLessonLimit?: number | null;
 }
 
 interface Lesson {
@@ -40,66 +41,53 @@ const Index = () => {
   const { user, signOut } = useAuth();
 
   useEffect(() => {
-    const fetchTeacherData = async () => {
-      if (user) {
-        try {
-          const docRef = doc(db, 'users', user.uid);
-          const docSnap = await getDoc(docRef);
+    if (!user) {
+      setIsLoadingLessons(false);
+      return;
+    }
 
-          if (docSnap.exists()) {
-            setTeacherData(docSnap.data() as TeacherData);
-          }
-        } catch (error) {
-          console.error('Error fetching teacher data:', error);
-        }
+    setIsLoadingLessons(true);
+
+    // 1. Real-time listener for user profile (to receive daily limit changes instantly)
+    const userDocRef = doc(db, 'users', user.uid);
+    const unsubscribeUser = onSnapshot(userDocRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setTeacherData(snapshot.data() as TeacherData);
       }
+    }, (error) => {
+      console.error('Error in real-time user listener:', error);
+    });
+
+    // 2. Real-time listener for user's lessons
+    const lessonsQ = query(
+      collection(db, "lessons"),
+      where("userId", "==", user.uid)
+    );
+    const unsubscribeLessons = onSnapshot(lessonsQ, (querySnapshot) => {
+      const fetchedLessons: Lesson[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        fetchedLessons.push({ id: doc.id, ...data } as Lesson);
+      });
+
+      // Sort in memory: primary sort by createdAt desc
+      fetchedLessons.sort((a, b) => {
+        const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
+        const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
+        return dateB - dateA;
+      });
+
+      setLessons(fetchedLessons);
+      setIsLoadingLessons(false);
+    }, (error) => {
+      console.error("Error in real-time lessons listener:", error);
+      setIsLoadingLessons(false);
+    });
+
+    return () => {
+      unsubscribeUser();
+      unsubscribeLessons();
     };
-
-    const fetchLessons = async () => {
-      if (!user) {
-        console.log("FetchLessons: No user logged in");
-        return;
-      }
-      setIsLoadingLessons(true);
-      try {
-        console.log("FetchLessons: Fetching lessons for user:", user.uid);
-        // Remove orderBy to avoid requiring a composite index manually in Firebase Console
-        const q = query(
-          collection(db, "lessons"),
-          where("userId", "==", user.uid)
-        );
-        const querySnapshot = await getDocs(q);
-        console.log("FetchLessons: Snapshot size:", querySnapshot.size);
-
-        const fetchedLessons: Lesson[] = [];
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          fetchedLessons.push({ id: doc.id, ...data } as Lesson);
-        });
-
-        // Sort in memory instead: primary sort by createdAt desc
-        fetchedLessons.sort((a, b) => {
-          const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt || 0).getTime();
-          const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt || 0).getTime();
-          return dateB - dateA;
-        });
-
-        console.log("FetchLessons: Final processed lessons:", fetchedLessons.length);
-        setLessons(fetchedLessons);
-      } catch (error: any) {
-        console.error("FetchLessons: Error fetching lessons:", error);
-        toast({
-          title: "خطأ في جلب الدروس",
-          description: error.message,
-          variant: "destructive"
-        });
-      } finally {
-        setIsLoadingLessons(false);
-      }
-    };
-
-    fetchTeacherData();
-    fetchLessons();
   }, [user]);
 
   const handleDeleteLesson = async (e: React.MouseEvent, lessonId: string) => {
@@ -143,6 +131,22 @@ const Index = () => {
     }
   };
 
+  const getTodayLessonsCount = () => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    return lessons.filter((lesson) => {
+      if (!lesson.createdAt) return false;
+      let lessonDate: Date;
+      if (typeof lesson.createdAt.toDate === 'function') {
+        lessonDate = lesson.createdAt.toDate();
+      } else {
+        lessonDate = new Date(lesson.createdAt);
+      }
+      return lessonDate >= startOfToday;
+    }).length;
+  };
+
   const handleUpload = async () => {
     if (!files || files.length === 0) {
       toast({
@@ -151,6 +155,22 @@ const Index = () => {
         variant: "destructive",
       });
       return;
+    }
+
+    // Check user daily lesson limit before processing
+    const isUserAdmin = teacherData?.role === 'admin' || user?.email === 'mahmoudgadmostafa@gmail.com';
+    const limit = teacherData?.dailyLessonLimit;
+
+    if (!isUserAdmin && limit !== undefined && limit !== null && limit >= 0) {
+      const todayCount = getTodayLessonsCount();
+      if (todayCount >= limit) {
+        toast({
+          title: "تجاوز الحد اليومي",
+          description: `لا يمكن لك أن تحضر أكثر من ${limit} درس في اليوم الواحد (العدد المحدد من قبل إدارة الموقع).`,
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     setIsUploading(true);
@@ -284,7 +304,37 @@ const Index = () => {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">تخصص: {teacherData.subject} • {teacherData.phone}</p>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <p className="text-xs text-slate-500">تخصص: {teacherData.subject} • {teacherData.phone}</p>
+                    <span className="text-slate-300">•</span>
+                    {teacherData.dailyLessonLimit !== undefined && teacherData.dailyLessonLimit !== null ? (
+                      (() => {
+                        const todayCount = getTodayLessonsCount();
+                        const limit = teacherData.dailyLessonLimit;
+                        const isReached = todayCount >= limit;
+                        return (
+                          <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 transition-all ${
+                            isReached 
+                              ? 'bg-rose-50 text-rose-700 border-rose-200' 
+                              : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          }`}>
+                            <Gauge className="h-3.5 w-3.5" />
+                            <span>الحد اليومي: <b>{todayCount}</b> من <b>{limit}</b> دروس</span>
+                            {isReached ? (
+                              <span className="text-[10px] bg-rose-200/60 text-rose-800 px-1.5 py-0.2 rounded-full font-bold">تم الاستهلاك</span>
+                            ) : (
+                              <span className="text-[10px] bg-indigo-100 text-indigo-800 px-1.5 py-0.2 rounded-full font-bold">متبقي {limit - todayCount}</span>
+                            )}
+                          </span>
+                        );
+                      })()
+                    ) : (
+                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1.5">
+                        <Gauge className="h-3.5 w-3.5 text-emerald-600" />
+                        <span>الحد اليومي: <b>غير محدود ♾️</b></span>
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -316,6 +366,28 @@ const Index = () => {
               </CardHeader>
 
               <CardContent className="p-8 pt-4 space-y-6">
+                {/* Limit Exceeded Banner */}
+                {teacherData?.dailyLessonLimit !== undefined && teacherData?.dailyLessonLimit !== null && (
+                  (() => {
+                    const isUserAdmin = teacherData?.role === 'admin' || user?.email === 'mahmoudgadmostafa@gmail.com';
+                    const todayCount = getTodayLessonsCount();
+                    const limit = teacherData.dailyLessonLimit;
+                    if (!isUserAdmin && todayCount >= limit) {
+                      return (
+                        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-sm font-medium flex items-center gap-3 animate-in fade-in">
+                          <div className="p-2 rounded-xl bg-rose-100 text-rose-600 shrink-0">
+                            <Gauge className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="font-bold">تنبيه: تم الوصول للحد الأقصى اليومي ({limit} دروس)</p>
+                            <p className="text-xs text-rose-600 mt-0.5">لقد قمت بتحضير {todayCount} درس/دروس اليوم. للتعديل أو التوسعة يرجى التواصل مع إدارة الموقع.</p>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()
+                )}
                 <div
                   className={`relative border-2 border-dashed rounded-3xl p-10 text-center transition-all duration-300 cursor-pointer
                     ${files && files.length > 0 ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-primary/50 hover:bg-slate-50/50'}`}

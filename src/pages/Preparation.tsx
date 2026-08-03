@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ShapeEditor } from "@/components/ShapeEditor";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, updateDoc, doc, getDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, updateDoc, doc, getDoc, serverTimestamp, query, where, getDocs } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 // @ts-ignore
 import html2pdf from "html2pdf.js";
@@ -411,6 +411,43 @@ const Preparation = () => {
         await updateDoc(lessonRef, lessonPayload);
         toast({ title: "تم التحديث", description: "تم تحديث الدرس بنجاح" });
       } else {
+        // Check user daily lesson limit before creating a new lesson
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          const uData = userDoc.data();
+          const limit = uData.dailyLessonLimit;
+          const isUserAdmin = uData.role === 'admin' || user.email === 'mahmoudgadmostafa@gmail.com';
+
+          if (!isUserAdmin && limit !== undefined && limit !== null && limit >= 0) {
+            const startOfToday = new Date();
+            startOfToday.setHours(0, 0, 0, 0);
+
+            const qToday = query(
+              collection(db, "lessons"),
+              where("userId", "==", user.uid)
+            );
+            const snapToday = await getDocs(qToday);
+            let countToday = 0;
+            snapToday.forEach((d) => {
+              const cDate = d.data().createdAt;
+              let lDate: Date;
+              if (cDate?.toDate) lDate = cDate.toDate();
+              else lDate = new Date(cDate || 0);
+              if (lDate >= startOfToday) countToday++;
+            });
+
+            if (countToday >= limit) {
+              toast({
+                title: "تجاوز الحد اليومي",
+                description: `لا يمكن لك أن تحضر أكثر من ${limit} درس في اليوم الواحد.`,
+                variant: "destructive",
+              });
+              setIsSaving(false);
+              return;
+            }
+          }
+        }
+
         // Create new lesson
         const lessonRef = collection(db, "lessons");
         const docRef = await addDoc(lessonRef, {
