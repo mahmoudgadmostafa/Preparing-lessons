@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, FileText, Sparkles, BookOpen, LogOut, Shield, Gauge } from "lucide-react";
+import { Upload, FileText, Sparkles, BookOpen, LogOut, Shield, Gauge, Camera, X, CheckCircle2, Image, RefreshCw } from "lucide-react";
+import { useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,6 +32,14 @@ interface Lesson {
 
 const Index = () => {
   const [files, setFiles] = useState<FileList | null>(null);
+  const [capturedPhotos, setCapturedPhotos] = useState<File[]>([]);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [flashEffect, setFlashEffect] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [teacherData, setTeacherData] = useState<TeacherData | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -114,6 +123,92 @@ const Index = () => {
     }
   };
 
+  // --- Camera Functions ---
+  const openCamera = async () => {
+    setIsCameraOpen(true);
+    setIsCameraLoading(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      });
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (err) {
+      toast({
+        title: "تعذر فتح الكاميرا",
+        description: "تأكد من منح الإذن للموقع لاستخدام الكاميرا.",
+        variant: "destructive",
+      });
+      setIsCameraOpen(false);
+    } finally {
+      setIsCameraLoading(false);
+    }
+  };
+
+  const closeCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((t) => t.stop());
+      setCameraStream(null);
+    }
+    setIsCameraOpen(false);
+  };
+
+  const switchCamera = async () => {
+    const newMode = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(newMode);
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((t) => t.stop());
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: newMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      });
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch {}
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const photoNum = capturedPhotos.length + 1;
+      const file = new File([blob], `camera_photo_${Date.now()}_${photoNum}.jpg`, { type: 'image/jpeg' });
+      setCapturedPhotos((prev) => [...prev, file]);
+      // Flash effect
+      setFlashEffect(true);
+      setTimeout(() => setFlashEffect(false), 200);
+    }, 'image/jpeg', 0.92);
+  };
+
+  const removePhoto = (index: number) => {
+    setCapturedPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const confirmCameraPhotos = () => {
+    closeCamera();
+    toast({
+      title: `تم إضافة ${capturedPhotos.length} صورة`,
+      description: "الصور جاهزة — اضغط 'إنشاء ملف التحضير' لمعالجتها.",
+    });
+  };
+  // --- End Camera Functions ---
+
   const handleLogout = async () => {
     try {
       await signOut();
@@ -147,11 +242,17 @@ const Index = () => {
     }).length;
   };
 
+  const allFilesToProcess = (): File[] => {
+    const fromInput = files ? Array.from(files) : [];
+    return [...fromInput, ...capturedPhotos];
+  };
+
   const handleUpload = async () => {
-    if (!files || files.length === 0) {
+    const allFiles = allFilesToProcess();
+    if (allFiles.length === 0) {
       toast({
         title: "تنبيه",
-        description: "الرجاء اختيار ملف أو أكثر",
+        description: "الرجاء اختيار ملف أو تصوير صورة على الأقل",
         variant: "destructive",
       });
       return;
@@ -177,11 +278,12 @@ const Index = () => {
 
     try {
       let lessonData: any = null;
+      const allFiles = allFilesToProcess();
 
       // 1. Try Supabase Edge Function first
       try {
         const formData = new FormData();
-        Array.from(files).forEach((file) => {
+        allFiles.forEach((file) => {
           formData.append('files', file);
         });
 
@@ -201,7 +303,7 @@ const Index = () => {
       // 2. Direct Gemini Fallback if edge function unavailable or fails
       if (!lessonData) {
         console.log('Processing lesson using direct Gemini 2.0 Flash API...');
-        lessonData = await processLessonWithGemini(Array.from(files));
+        lessonData = await processLessonWithGemini(allFiles);
       }
 
       toast({
@@ -359,10 +461,23 @@ const Index = () => {
                     <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">خطوة 01</span>
                   </div>
                 </div>
-                <CardTitle className="text-2xl font-bold">بدء تحضير جديد</CardTitle>
-                <CardDescription className="text-slate-500 text-base">
-                  ارفع صور صفحات الكتاب أو ملاحظاتك، وسيتولى الذكاء الاصطناعي الباقي.
-                </CardDescription>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <CardTitle className="text-2xl font-bold">بدء تحضير جديد</CardTitle>
+                    <CardDescription className="text-slate-500 text-base mt-1">
+                      ارفع صور صفحات الكتاب أو صوّر مباشرةً بالكاميرا.
+                    </CardDescription>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={openCamera}
+                    className="gap-2 text-indigo-600 border-indigo-200 hover:bg-indigo-50 font-bold shrink-0"
+                  >
+                    <Camera className="h-4 w-4" />
+                    صوّر بالكاميرا
+                  </Button>
+                </div>
               </CardHeader>
 
               <CardContent className="p-8 pt-4 space-y-6">
@@ -416,13 +531,17 @@ const Index = () => {
                   </div>
                 </div>
 
+                {/* Uploaded Files List */}
                 {files && files.length > 0 && (
                   <div className="animate-in fade-in slide-in-from-bottom-2">
                     <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-sm font-bold text-slate-700">قائمة المستندات</h4>
-                      <Button variant="ghost" size="sm" onClick={() => setFiles(null)} className="text-rose-500 h-7 text-xs font-bold">مسح الكل</Button>
+                      <h4 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                        <Upload className="h-4 w-4 text-slate-500" />
+                        الملفات المرفوعة ({files.length})
+                      </h4>
+                      <Button variant="ghost" size="sm" onClick={() => setFiles(null)} className="text-rose-500 h-7 text-xs font-bold">مسح</Button>
                     </div>
-                    <div className="max-h-40 overflow-y-auto pr-2 space-y-2 scrollbar-thin">
+                    <div className="max-h-36 overflow-y-auto pr-2 space-y-2 scrollbar-thin">
                       {Array.from(files).map((file, i) => (
                         <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 hover:border-primary/20 transition-colors">
                           <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shadow-sm">
@@ -436,9 +555,42 @@ const Index = () => {
                   </div>
                 )}
 
+                {/* Captured Photos List */}
+                {capturedPhotos.length > 0 && (
+                  <div className="animate-in fade-in slide-in-from-bottom-2">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                        <Camera className="h-4 w-4 text-indigo-500" />
+                        صور الكاميرا ({capturedPhotos.length})
+                      </h4>
+                      <Button variant="ghost" size="sm" onClick={() => setCapturedPhotos([])} className="text-rose-500 h-7 text-xs font-bold">مسح الكل</Button>
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      {capturedPhotos.map((photo, i) => (
+                        <div key={i} className="relative group rounded-xl overflow-hidden border-2 border-indigo-100 aspect-square">
+                          <img
+                            src={URL.createObjectURL(photo)}
+                            alt={`صورة ${i + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <button
+                              onClick={() => removePhoto(i)}
+                              className="w-7 h-7 rounded-full bg-rose-500 text-white flex items-center justify-center hover:bg-rose-600 transition-colors"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <span className="absolute bottom-1 left-1 text-[10px] font-bold bg-black/50 text-white px-1 py-0.5 rounded">{i + 1}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <Button
                   onClick={handleUpload}
-                  disabled={!files || isUploading}
+                  disabled={(allFilesToProcess().length === 0) || isUploading}
                   className="w-full h-14 text-lg font-bold shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 active:scale-[0.98] transition-all rounded-2xl gap-3"
                 >
                   {isUploading ? (
@@ -639,6 +791,126 @@ const Index = () => {
           <p className="text-[10px] text-slate-600 mt-8">©جميع الحقوق محفوظة @أ/محمود جاد مصطفى @ ت/01060607654</p>
         </div>
       </footer>
+
+      {/* Hidden Canvas for photo capture */}
+      <canvas ref={canvasRef} className="hidden" />
+
+      {/* Camera Modal */}
+      {isCameraOpen && (
+        <div className="fixed inset-0 z-[100] bg-black flex flex-col" dir="rtl">
+          {/* Top Bar */}
+          <div className="flex items-center justify-between p-4 bg-black/70 backdrop-blur-sm">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={closeCamera}
+                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+              >
+                <X className="h-5 w-5 text-white" />
+              </button>
+              <span className="text-white font-bold text-lg">الكاميرا</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {capturedPhotos.length > 0 && (
+                <span className="bg-indigo-500 text-white text-sm font-bold px-3 py-1 rounded-full">
+                  {capturedPhotos.length} صورة
+                </span>
+              )}
+              <button
+                onClick={switchCamera}
+                className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+                title="تبديل الكاميرا"
+              >
+                <RefreshCw className="h-5 w-5 text-white" />
+              </button>
+            </div>
+          </div>
+
+          {/* Video Feed */}
+          <div className="flex-1 relative overflow-hidden">
+            {isCameraLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
+                <div className="text-center text-white">
+                  <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-3" />
+                  <p className="font-medium">جاري تشغيل الكاميرا...</p>
+                </div>
+              </div>
+            )}
+            {/* Flash Effect */}
+            {flashEffect && (
+              <div className="absolute inset-0 bg-white z-20 animate-ping pointer-events-none" style={{ animationDuration: '0.15s', animationIterationCount: 1 }} />
+            )}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+              style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+            />
+            {/* Corner Frame Guides */}
+            <div className="absolute inset-8 pointer-events-none">
+              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white/70 rounded-tr-lg" />
+              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white/70 rounded-tl-lg" />
+              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white/70 rounded-br-lg" />
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white/70 rounded-bl-lg" />
+            </div>
+          </div>
+
+          {/* Bottom Controls */}
+          <div className="bg-black/70 backdrop-blur-sm p-6">
+            {/* Thumbnail Row */}
+            {capturedPhotos.length > 0 && (
+              <div className="flex gap-2 mb-5 overflow-x-auto pb-2">
+                {capturedPhotos.map((photo, i) => (
+                  <div key={i} className="relative shrink-0 w-16 h-16 rounded-xl overflow-hidden border-2 border-indigo-400">
+                    <img src={URL.createObjectURL(photo)} alt="" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removePhoto(i)}
+                      className="absolute top-0.5 right-0.5 w-5 h-5 bg-rose-500 rounded-full flex items-center justify-center"
+                    >
+                      <X className="h-3 w-3 text-white" />
+                    </button>
+                    <span className="absolute bottom-0.5 left-0.5 text-[9px] font-bold bg-black/60 text-white px-1 rounded">{i + 1}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-between gap-4">
+              {/* Cancel */}
+              <button
+                onClick={closeCamera}
+                className="text-white/70 hover:text-white text-sm font-bold transition-colors py-2 px-4"
+              >
+                إلغاء
+              </button>
+
+              {/* Capture Button */}
+              <button
+                onClick={capturePhoto}
+                className="w-20 h-20 rounded-full bg-white border-4 border-white/30 hover:scale-95 active:scale-90 transition-transform shadow-2xl flex items-center justify-center mx-auto"
+              >
+                <div className="w-14 h-14 rounded-full bg-white border-2 border-slate-200" />
+              </button>
+
+              {/* Confirm */}
+              <button
+                onClick={confirmCameraPhotos}
+                disabled={capturedPhotos.length === 0}
+                className={`flex items-center gap-2 text-sm font-bold py-2 px-4 rounded-2xl transition-all ${
+                  capturedPhotos.length > 0
+                    ? 'bg-indigo-500 text-white hover:bg-indigo-600'
+                    : 'text-white/30 cursor-not-allowed'
+                }`}
+              >
+                <CheckCircle2 className="h-5 w-5" />
+                تأكيد ({capturedPhotos.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
