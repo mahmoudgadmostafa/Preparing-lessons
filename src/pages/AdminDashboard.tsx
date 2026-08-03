@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
-import { LogOut, Users, CheckCircle, XCircle, Trash2, Shield } from 'lucide-react';
+import { LogOut, Users, CheckCircle, XCircle, Trash2, Shield, Gauge } from 'lucide-react';
 
 interface UserData {
     id: string;
@@ -17,6 +17,7 @@ interface UserData {
     role: string;
     status: string;
     createdAt: string;
+    dailyLessonLimit?: number | null;
 }
 
 const AdminDashboard = () => {
@@ -165,6 +166,30 @@ const AdminDashboard = () => {
             toast({
                 title: 'خطأ',
                 description: 'حدث خطأ أثناء حذف المستخدم',
+                variant: 'destructive',
+            });
+        }
+    };
+
+    const handleUpdateDailyLimit = async (userId: string, limitValue: number | null) => {
+        try {
+            await updateDoc(doc(db, 'users', userId), {
+                dailyLessonLimit: limitValue
+            });
+
+            toast({
+                title: 'تم تحديث الحد اليومي',
+                description: limitValue === null || limitValue === undefined
+                    ? 'تم ضبط حد التحضير اليومي إلى: غير محدود'
+                    : `تم تحديد الحد اليومي بـ (${limitValue}) دروس في اليوم`,
+            });
+
+            fetchUsers();
+        } catch (error) {
+            console.error('Error updating daily limit:', error);
+            toast({
+                title: 'خطأ',
+                description: 'حدث خطأ أثناء تحديث الحد اليومي للمستخدم',
                 variant: 'destructive',
             });
         }
@@ -331,6 +356,47 @@ const AdminDashboard = () => {
                                                 <span>الهاتف: <b>{user.phone}</b></span>
                                             </div>
                                             <p className="text-[10px] text-slate-400 font-mono truncate max-w-[200px] md:max-w-none">{user.email}</p>
+                                            
+                                            {/* Daily Limit Control */}
+                                            <div className="flex items-center gap-2 mt-2 pt-1 border-t border-slate-100 text-xs">
+                                                <Gauge className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                                                <span className="text-slate-600 font-medium">الحد اليومي:</span>
+                                                <select
+                                                    value={user.dailyLessonLimit === undefined || user.dailyLessonLimit === null ? 'unlimited' : String(user.dailyLessonLimit)}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (val === 'unlimited') {
+                                                            handleUpdateDailyLimit(user.id, null);
+                                                        } else if (val === 'custom') {
+                                                            const input = prompt('أدخل عدد الدروس اليومية المسموح بها لهذا المستخدم:', String(user.dailyLessonLimit || 3));
+                                                            if (input !== null) {
+                                                                const num = parseInt(input, 10);
+                                                                if (!isNaN(num) && num >= 0) {
+                                                                    handleUpdateDailyLimit(user.id, num);
+                                                                } else if (input.trim() === '') {
+                                                                    handleUpdateDailyLimit(user.id, null);
+                                                                }
+                                                            }
+                                                        } else {
+                                                            handleUpdateDailyLimit(user.id, parseInt(val, 10));
+                                                        }
+                                                    }}
+                                                    className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 rounded-md px-2 py-0.5 text-xs font-bold transition-colors cursor-pointer outline-none focus:ring-1 focus:ring-indigo-500"
+                                                >
+                                                    <option value="unlimited">غير محدود</option>
+                                                    <option value="1">1 درس / يوم</option>
+                                                    <option value="2">2 درس / يوم</option>
+                                                    <option value="3">3 دروس / يوم</option>
+                                                    <option value="5">5 دروس / يوم</option>
+                                                    <option value="10">10 دروس / يوم</option>
+                                                    <option value="custom">رقم مخصص...</option>
+                                                </select>
+                                                {user.dailyLessonLimit !== undefined && user.dailyLessonLimit !== null && (
+                                                    <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                                                        أقصى حد: {user.dailyLessonLimit}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
 
                                         <div className="flex items-center gap-2 w-full md:w-auto justify-end border-t md:border-none pt-3 md:pt-0">
