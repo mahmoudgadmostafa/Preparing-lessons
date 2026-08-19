@@ -197,8 +197,9 @@ const AdminDashboard = () => {
 
     const handleLogout = async () => {
         await signOut();
-        navigate('/login');
+        navigate('/');
     };
+
 
     if (loading) {
         return (
@@ -437,6 +438,14 @@ const AdminDashboard = () => {
                             </div>
                         </CardContent>
                     </Card>
+
+                    {/* Footer */}
+                    <div className="mt-8 text-center text-xs text-slate-500 font-semibold">
+                      <p>© جميع الحقوق محفوظة — منصة تحضير ذكي</p>
+                      <p className="mt-1 text-slate-600">
+                        صاحب حقوق التصميم: <strong className="text-slate-900 font-bold">د. محمود جاد مصطفى</strong>
+                      </p>
+                    </div>
                 </div>
             </div>
         </div>

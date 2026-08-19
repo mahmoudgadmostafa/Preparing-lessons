@@ -9,8 +9,9 @@ const PendingApproval = () => {
 
     const handleLogout = async () => {
         await signOut();
-        navigate('/login');
+        navigate('/');
     };
+
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50" dir="rtl">
@@ -45,6 +46,11 @@ const PendingApproval = () => {
                         تسجيل الخروج
                     </Button>
                 </div>
+
+                {/* Footer Text */}
+                <p className="text-center mt-6 text-slate-700 text-sm font-medium">
+                  صاحب حقوق التصميم: د. محمود جاد مصطفى
+                </p>
             </div>
         </div>
     );

@@ -27,7 +27,7 @@ const Login = () => {
         title: 'تم تسجيل الدخول بنجاح',
         description: 'مرحباً بك مرة أخرى!',
       });
-      navigate('/');
+      navigate('/dashboard');
     } catch (error: any) {
       toast({
         title: 'خطأ في تسجيل الدخول',
@@ -47,7 +47,7 @@ const Login = () => {
         title: 'تم تسجيل الدخول بنجاح',
         description: 'مرحباً بك!',
       });
-      navigate('/');
+      navigate('/dashboard');
     } catch (error: any) {
       console.error('Google sign-in error:', error);
       toast({
@@ -233,8 +233,8 @@ const Login = () => {
         </div>
 
         {/* Footer Text */}
-        <p className="text-center mt-6 text-gray-800 text-sm font-medium">
-          جميع الحقوق محفوظة @ أ/ محمود جاد مصطفى @ ت/01060607654
+        <p className="text-center mt-6 text-slate-700 text-sm font-medium">
+          صاحب حقوق التصميم: د. محمود جاد مصطفى
         </p>
       </div>
 

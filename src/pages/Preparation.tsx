@@ -840,6 +840,14 @@ const Preparation = () => {
         </div>
       </main>
 
+      {/* Footer */}
+      <footer className="py-6 border-t border-slate-200/80 bg-white/50 print:hidden text-center text-xs text-slate-500 font-semibold mt-10">
+        <p>© جميع الحقوق محفوظة — منصة تحضير ذكي</p>
+        <p className="mt-1 text-slate-600">
+          صاحب حقوق التصميم: <strong className="text-slate-900 font-bold">د. محمود جاد مصطفى</strong>
+        </p>
+      </footer>
+
       {/* Captured Image for Perfect Print */}
       {capturedImage && (
         <div id="print-image-container" className="fixed inset-0 z-[999999] bg-white flex items-center justify-center print:block hidden">

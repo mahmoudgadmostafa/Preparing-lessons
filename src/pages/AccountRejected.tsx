@@ -9,8 +9,9 @@ const AccountRejected = () => {
 
     const handleLogout = async () => {
         await signOut();
-        navigate('/login');
+        navigate('/');
     };
+
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 via-rose-50 to-pink-50" dir="rtl">
@@ -45,6 +46,11 @@ const AccountRejected = () => {
                         تسجيل الخروج
                     </Button>
                 </div>
+
+                {/* Footer Text */}
+                <p className="text-center mt-6 text-slate-700 text-sm font-medium">
+                  صاحب حقوق التصميم: د. محمود جاد مصطفى
+                </p>
             </div>
         </div>
     );

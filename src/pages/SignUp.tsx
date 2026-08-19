@@ -34,7 +34,7 @@ const SignUp = () => {
                 title: 'تم تسجيل الدخول بنجاح',
                 description: 'مرحباً بك في منصة تحضير الدروس!',
             });
-            navigate('/');
+            navigate('/dashboard');
         } catch (error: any) {
             console.error('Google sign-in error:', error);
             toast({
@@ -119,7 +119,7 @@ const SignUp = () => {
             }
 
             setTimeout(() => {
-                navigate('/');
+                navigate('/dashboard');
             }, 500);
 
         } catch (error: any) {
@@ -421,8 +421,8 @@ const SignUp = () => {
                 </div>
 
                 {/* Footer Text */}
-                <p className="text-center mt-6 text-gray-600 text-sm">
-
+                <p className="text-center mt-6 text-slate-700 text-sm font-medium">
+                  صاحب حقوق التصميم: د. محمود جاد مصطفى
                 </p>
             </div>
 

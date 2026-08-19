@@ -286,8 +286,8 @@ export const ShapeEditor = ({ isOpen, onClose, onSave }: ShapeEditorProps) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" dir="rtl">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 overflow-hidden">
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-2 sm:p-4 backdrop-blur-xs" dir="rtl">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[95vh] flex flex-col overflow-hidden border border-slate-200">
         {/* Header */}
         <div className="bg-primary text-primary-foreground p-3 flex items-center justify-between">
           <h2 className="font-bold">محرر الأشكال</h2>

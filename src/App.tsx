@@ -2,9 +2,11 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import FloatingSocial from "@/components/FloatingSocial";
+import Landing from "./pages/Landing";
 import Index from "./pages/Index";
 import Preparation from "./pages/Preparation";
 import Login from "./pages/Login";
@@ -24,22 +26,31 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <FloatingSocial />
         <BrowserRouter>
           <Routes>
+            {/* Public Landing Page */}
+            <Route path="/" element={<Landing />} />
+
+            {/* Auth Routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<SignUp />} />
             <Route path="/make-admin" element={<MakeAdmin />} />
             <Route path="/debug-user" element={<DebugUser />} />
             <Route path="/pending-approval" element={<PendingApproval />} />
             <Route path="/account-rejected" element={<AccountRejected />} />
+
+            {/* Protected Teacher Dashboard */}
             <Route
-              path="/"
+              path="/dashboard"
               element={
                 <ProtectedRoute>
                   <Index />
                 </ProtectedRoute>
               }
             />
+
+            {/* Protected: Lesson Preparation Editor */}
             <Route
               path="/preparation"
               element={
@@ -48,6 +59,8 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+
+            {/* Protected: Admin Dashboard */}
             <Route
               path="/admin"
               element={
@@ -56,6 +69,7 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
